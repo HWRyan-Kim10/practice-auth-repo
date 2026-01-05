@@ -215,6 +215,20 @@ function WorkoutCard({ workout, onOpen, onLike, onDislike, voting }) {
   );
 }
 
+function toLocalDateInputValue(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function localMiddayFromDateInput(yyyyMmDd) {
+  if (!yyyyMmDd) return new Date();
+  const [y, m, d] = yyyyMmDd.split("-").map((n) => Number(n));
+  // Use midday local time to avoid timezone/DST shifting into previous/next day.
+  return new Date(y, (m || 1) - 1, d || 1, 12, 0, 0, 0);
+}
+
 async function fetchPublicWorkouts() {
   const q = query(collection(db, "publicWorkouts"), orderBy("title"), limit(24));
   const snap = await getDocs(q);
@@ -395,7 +409,7 @@ async function addWorkoutLog({
   notes,
   templateId,
 }) {
-  const performedAt = performedAtISO ? new Date(performedAtISO) : new Date();
+  const performedAt = localMiddayFromDateInput(performedAtISO);
   const ref = collection(db, "users", uid, "workoutLogs");
   await addDoc(ref, {
     title: title?.trim() || "Workout",
@@ -793,7 +807,7 @@ function LogPage({ initialTitle, initialTemplateId }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [title, setTitle] = useState(initialTitle || "");
-  const [performedAtISO, setPerformedAtISO] = useState(() => new Date().toISOString().slice(0, 10));
+  const [performedAtISO, setPerformedAtISO] = useState(() => toLocalDateInputValue(new Date()));
   const [trackingType, setTrackingType] = useState("duration"); // "duration" | "reps"
   const [durationMinutes, setDurationMinutes] = useState("");
   const [sets, setSets] = useState("");
