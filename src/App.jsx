@@ -14,11 +14,14 @@ import {
   doc,
   getDoc,
   getDocs,
+  increment,
   limit,
   orderBy,
   query,
   serverTimestamp,
   setDoc,
+  updateDoc,
+  writeBatch,
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 function useHashRoute() {
@@ -156,11 +159,25 @@ function OnboardingModal({ open, onClose, onStartLog, onBrowse }) {
   );
 }
 
-function WorkoutCard({ workout, onOpen }) {
+function WorkoutCard({ workout, onOpen, onLike, onDislike, voting }) {
+  const musclesText = workout.muscles?.length ? workout.muscles.join(", ") : "Full body / unspecified";
+  const tracking =
+    workout.trackingType === "reps"
+      ? `Reps-based${workout.suggestedSets ? ` · ${workout.suggestedSets} sets` : ""}${
+          workout.suggestedReps ? ` · ${workout.suggestedReps} reps` : ""
+        }`
+      : `Time-based${workout.suggestedDurationMinutes ? ` · ${workout.suggestedDurationMinutes} min` : ""}`;
+
+  const likeCount = Number.isFinite(workout.likeCount) ? workout.likeCount : 0;
+  const dislikeCount = Number.isFinite(workout.dislikeCount) ? workout.dislikeCount : 0;
+  const exerciseCount = Array.isArray(workout.exercises) ? workout.exercises.length : 0;
+
   return (
-    <button className="recipeCard" onClick={onOpen} type="button">
+    <div className="recipeCard" role="group" aria-label={`Workout: ${workout.title}`}>
       <div className="recipeCard__top">
-        <div className="recipeCard__title">{workout.title}</div>
+        <button className="recipeCard__titleBtn" onClick={onOpen} type="button">
+          <div className="recipeCard__title">{workout.title}</div>
+        </button>
         {workout.tags?.length ? (
           <div className="recipeCard__tags">
             {workout.tags.slice(0, 3).map((t) => (
@@ -170,13 +187,31 @@ function WorkoutCard({ workout, onOpen }) {
         ) : null}
       </div>
       <div className="recipeCard__desc">{workout.description}</div>
-      <div className="recipeCard__meta">
-        <span className="subtle">
-          {workout.exercises?.length || 0} exercises · {workout.steps?.length || 0} steps
-        </span>
-        <span className="recipeCard__cta">View</span>
+      <div className="catalogMeta">
+        <div className="catalogMeta__row">
+          <div className="catalogMeta__label">Targets</div>
+          <div className="catalogMeta__value">{musclesText}</div>
+        </div>
+        <div className="catalogMeta__row">
+          <div className="catalogMeta__label">Tracking</div>
+          <div className="catalogMeta__value">{tracking}</div>
+        </div>
+        <div className="catalogMeta__row">
+          <div className="catalogMeta__label">Exercises</div>
+          <div className="catalogMeta__value">{exerciseCount ? `${exerciseCount} total` : "—"}</div>
+        </div>
       </div>
-    </button>
+      <div className="voteRow" aria-label="Votes">
+        <button className="iconBtn" type="button" onClick={onLike} disabled={voting} aria-label="Like">
+          <span className="iconBtn__icon">👍</span>
+          <span className="iconBtn__count">{likeCount}</span>
+        </button>
+        <button className="iconBtn" type="button" onClick={onDislike} disabled={voting} aria-label="Dislike">
+          <span className="iconBtn__icon">👎</span>
+          <span className="iconBtn__count">{dislikeCount}</span>
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -186,6 +221,162 @@ async function fetchPublicWorkouts() {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
+async function seedStarterCatalog() {
+  const items = [
+    {
+      id: "push-day-strength",
+      title: "Push Day (Strength)",
+      description: "Chest/shoulders/triceps with lower reps and longer rest.",
+      muscles: ["Chest", "Shoulders", "Triceps"],
+      trackingType: "reps",
+      suggestedSets: 4,
+      suggestedReps: "4–6",
+      tags: ["strength", "upper"],
+      exercises: ["Bench Press", "Overhead Press", "Incline Dumbbell Press", "Triceps Pushdown"],
+      steps: ["Warm up 5–10 min.", "Ramp-up sets for first lift.", "Main sets, then accessories.", "Cool down + stretch."],
+    },
+    {
+      id: "pull-day-hypertrophy",
+      title: "Pull Day (Hypertrophy)",
+      description: "Back/biceps volume for size and control.",
+      muscles: ["Back", "Biceps", "Rear delts"],
+      trackingType: "reps",
+      suggestedSets: 3,
+      suggestedReps: "8–12",
+      tags: ["hypertrophy", "upper"],
+      exercises: ["Lat Pulldown", "Chest-Supported Row", "Face Pulls", "Bicep Curls"],
+      steps: ["Warm up.", "Focus on full range of motion.", "Keep 1–2 reps in reserve on most sets."],
+    },
+    {
+      id: "legs-day-strength",
+      title: "Legs Day (Strength)",
+      description: "Squat-focused day with posterior chain support work.",
+      muscles: ["Quads", "Glutes", "Hamstrings"],
+      trackingType: "reps",
+      suggestedSets: 4,
+      suggestedReps: "3–5",
+      tags: ["strength", "lower"],
+      exercises: ["Back Squat", "Romanian Deadlift", "Leg Press", "Calf Raises"],
+      steps: ["Warm up hips/ankles.", "Main lift first.", "Accessories after.", "Light stretching."],
+    },
+    {
+      id: "upper-body-beginner",
+      title: "Upper Body (Beginner)",
+      description: "Simple full upper routine that’s easy to progress weekly.",
+      muscles: ["Chest", "Back", "Shoulders", "Arms"],
+      trackingType: "reps",
+      suggestedSets: 3,
+      suggestedReps: "8–10",
+      tags: ["beginner", "upper"],
+      exercises: ["Push-ups (or Bench Press)", "Lat Pulldown", "Dumbbell Shoulder Press", "Dumbbell Row"],
+      steps: ["Start light.", "Add reps until top of range, then add weight.", "Stop sets with good form."],
+    },
+    {
+      id: "core-stability",
+      title: "Core Stability",
+      description: "Anti-extension/anti-rotation core work for better bracing.",
+      muscles: ["Core"],
+      trackingType: "reps",
+      suggestedSets: 3,
+      suggestedReps: "10–15",
+      tags: ["core"],
+      exercises: ["Dead Bug", "Pallof Press", "Side Plank", "Bird Dog"],
+      steps: ["Slow and controlled.", "Breathe and brace.", "Rest 30–60 sec between movements."],
+    },
+    {
+      id: "hiit-20",
+      title: "HIIT (20 min)",
+      description: "Short intervals to push conditioning fast.",
+      muscles: ["Full body"],
+      trackingType: "duration",
+      suggestedDurationMinutes: 20,
+      tags: ["cardio", "hiit"],
+      exercises: ["Bike or Row", "Burpees (optional)"],
+      steps: ["Warm up 3–5 min.", "Intervals: 30s hard / 90s easy (repeat).", "Cool down 3–5 min."],
+    },
+    {
+      id: "steady-state-30",
+      title: "Steady State Cardio (30 min)",
+      description: "Easy-to-moderate pace for recovery and endurance base.",
+      muscles: ["Full body"],
+      trackingType: "duration",
+      suggestedDurationMinutes: 30,
+      tags: ["cardio", "endurance"],
+      exercises: ["Walk", "Jog", "Bike", "Elliptical"],
+      steps: ["Keep a conversational pace.", "Stay consistent.", "Finish with light stretching."],
+    },
+    {
+      id: "glutes-hamstrings",
+      title: "Glutes + Hamstrings",
+      description: "Posterior chain focus for strength and shape.",
+      muscles: ["Glutes", "Hamstrings"],
+      trackingType: "reps",
+      suggestedSets: 3,
+      suggestedReps: "8–12",
+      tags: ["lower", "hypertrophy"],
+      exercises: ["Hip Thrust", "Romanian Deadlift", "Hamstring Curl", "Glute Bridge"],
+      steps: ["Warm up glutes/hamstrings.", "Control the eccentric.", "Squeeze at the top."],
+    },
+    {
+      id: "shoulders-arms",
+      title: "Shoulders + Arms",
+      description: "Accessory day for delts, biceps, and triceps.",
+      muscles: ["Shoulders", "Biceps", "Triceps"],
+      trackingType: "reps",
+      suggestedSets: 3,
+      suggestedReps: "10–15",
+      tags: ["upper", "accessories"],
+      exercises: ["Lateral Raises", "Rear Delt Fly", "Hammer Curls", "Overhead Triceps Extension"],
+      steps: ["Keep tension.", "Avoid swinging.", "Short rests 45–75 sec."],
+    },
+    {
+      id: "full-body-circuit",
+      title: "Full Body Circuit",
+      description: "Move fast through simple exercises for a sweat session.",
+      muscles: ["Full body"],
+      trackingType: "duration",
+      suggestedDurationMinutes: 25,
+      tags: ["circuit", "conditioning"],
+      exercises: ["Air Squats", "Push-ups", "Rows (band)", "Plank"],
+      steps: ["Set a timer.", "Rotate exercises for 3–5 rounds.", "Rest as needed."],
+    },
+    {
+      id: "mobility-15",
+      title: "Mobility (15 min)",
+      description: "Quick mobility routine for hips, shoulders, and spine.",
+      muscles: ["Mobility"],
+      trackingType: "duration",
+      suggestedDurationMinutes: 15,
+      tags: ["mobility", "recovery"],
+      exercises: ["Hip flexor stretch", "Thoracic rotations", "Shoulder dislocates (band)", "Ankle rocks"],
+      steps: ["Breathe slowly.", "Hold 30–45 seconds.", "No pain—just gentle tension."],
+    },
+    {
+      id: "upper-body-endurance",
+      title: "Upper Body Endurance",
+      description: "Lighter weight, higher reps for muscular endurance.",
+      muscles: ["Chest", "Back", "Shoulders", "Arms"],
+      trackingType: "reps",
+      suggestedSets: 2,
+      suggestedReps: "15–20",
+      tags: ["endurance", "upper"],
+      exercises: ["Incline Push-ups", "Seated Row", "Dumbbell Press", "Triceps Rope + Curl superset"],
+      steps: ["Short rests 30–60 sec.", "Smooth reps.", "Stop 1 rep before form breaks."],
+    },
+  ];
+
+  const batch = writeBatch(db);
+  for (const w of items) {
+    batch.set(doc(db, "publicWorkouts", w.id), {
+      ...w,
+      likeCount: 0,
+      dislikeCount: 0,
+      createdAt: serverTimestamp(),
+    });
+  }
+  await batch.commit();
+}
+
 async function fetchPublicWorkoutById(workoutId) {
   const ref = doc(db, "publicWorkouts", workoutId);
   const snap = await getDoc(ref);
@@ -193,13 +384,26 @@ async function fetchPublicWorkoutById(workoutId) {
   return { id: snap.id, ...snap.data() };
 }
 
-async function addWorkoutLog({ uid, title, performedAtISO, durationMinutes, notes, templateId }) {
+async function addWorkoutLog({
+  uid,
+  title,
+  performedAtISO,
+  trackingType,
+  durationMinutes,
+  sets,
+  reps,
+  notes,
+  templateId,
+}) {
   const performedAt = performedAtISO ? new Date(performedAtISO) : new Date();
   const ref = collection(db, "users", uid, "workoutLogs");
   await addDoc(ref, {
     title: title?.trim() || "Workout",
     performedAt,
-    durationMinutes: durationMinutes ? Number(durationMinutes) : null,
+    trackingType: trackingType || "duration",
+    durationMinutes: trackingType === "duration" && durationMinutes ? Number(durationMinutes) : null,
+    sets: trackingType === "reps" && sets ? Number(sets) : null,
+    reps: trackingType === "reps" && reps ? String(reps) : null,
     notes: notes?.trim() || null,
     templateId: templateId || null,
     createdAt: serverTimestamp(),
@@ -226,7 +430,7 @@ function TopNav() {
 
         <nav className="nav__links" aria-label="Primary">
           <button className="navLink" type="button" onClick={() => navigate("#/")}>
-            Browse Templates
+            Workout Catalog
           </button>
           {user ? (
             <button className="navLink" type="button" onClick={() => navigate("#/log")}>
@@ -294,6 +498,7 @@ function BrowsePage() {
   const [workouts, setWorkouts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [votingId, setVotingId] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -306,9 +511,7 @@ function BrowsePage() {
         setWorkouts(items);
       } catch (e) {
         if (!alive) return;
-        setError(
-          "Couldn’t load public workout templates. Make sure Firestore is enabled and you’ve added some docs to the publicWorkouts collection.",
-        );
+        setError("Templates aren’t available yet. Please try again later.");
       } finally {
         if (alive) setLoading(false);
       }
@@ -327,15 +530,15 @@ function BrowsePage() {
 
   return (
     <PageShell
-      title="Workout Templates"
-      subtitle="Public templates anyone can view. Log in to track your workouts privately."
+      title="Workout Catalog"
+      subtitle="Explore workouts and see what muscles they target. Log in to track your own sessions privately."
       right={right}
     >
       <div className="hero">
         <div className="hero__content">
           <div className="hero__title">How it works</div>
           <div className="hero__text subtle">
-            Pick a template → log your session → it shows up in <b>My Workout Log</b> (private).
+            Pick a workout → log your session → it shows up in <b>My Workout Log</b> (private).
             {user ? ` Welcome, ${displayName || user.email}.` : ""}
           </div>
         </div>
@@ -355,27 +558,94 @@ function BrowsePage() {
         </div>
       </div>
 
+      <div className="sectionHeader">
+        <div>
+          <div className="sectionHeader__title">Workout catalog</div>
+          <div className="subtle">Tap a workout to see details. Vote with 👍/👎 to help others.</div>
+        </div>
+      </div>
+
       <InlineError message={error} />
       {loading ? (
-        <LoadingCard title="Loading public templates" />
+        <LoadingCard title="Loading workout library" />
       ) : workouts.length ? (
         <div className="grid">
           {workouts.map((w) => (
-            <WorkoutCard key={w.id} workout={w} onOpen={() => navigate(`#/workout?id=${encodeURIComponent(w.id)}`)} />
+            <WorkoutCard
+              key={w.id}
+              workout={w}
+              voting={votingId === w.id}
+              onOpen={() => navigate(`#/workout?id=${encodeURIComponent(w.id)}`)}
+              onLike={async () => {
+                try {
+                  setVotingId(w.id);
+                  setError("");
+                  setWorkouts((prev) =>
+                    prev.map((x) => (x.id === w.id ? { ...x, likeCount: (x.likeCount || 0) + 1 } : x)),
+                  );
+                  await updateDoc(doc(db, "publicWorkouts", w.id), { likeCount: increment(1) });
+                } catch {
+                  setWorkouts((prev) =>
+                    prev.map((x) => (x.id === w.id ? { ...x, likeCount: Math.max((x.likeCount || 1) - 1, 0) } : x)),
+                  );
+                  setError("Couldn’t record your vote. Please try again.");
+                } finally {
+                  setVotingId("");
+                }
+              }}
+              onDislike={async () => {
+                try {
+                  setVotingId(w.id);
+                  setError("");
+                  setWorkouts((prev) =>
+                    prev.map((x) => (x.id === w.id ? { ...x, dislikeCount: (x.dislikeCount || 0) + 1 } : x)),
+                  );
+                  await updateDoc(doc(db, "publicWorkouts", w.id), { dislikeCount: increment(1) });
+                } catch {
+                  setWorkouts((prev) =>
+                    prev.map((x) =>
+                      x.id === w.id ? { ...x, dislikeCount: Math.max((x.dislikeCount || 1) - 1, 0) } : x,
+                    ),
+                  );
+                  setError("Couldn’t record your vote. Please try again.");
+                } finally {
+                  setVotingId("");
+                }
+              }}
+            />
           ))}
         </div>
       ) : (
         <div className="panel">
           <div className="panel__header">
             <div className="dot dot--amber" />
-            <div className="panel__title">No public templates yet</div>
+            <div className="panel__title">No workouts yet</div>
           </div>
           <div className="panel__body">
-            Add a few documents to Firestore collection <code>publicWorkouts</code> to get started.
+            There aren’t any workouts to browse right now.
             {user ? (
               <div className="panel__actions">
                 <button className="btn btn--primary" type="button" onClick={() => navigate("#/log")}>
                   Log a workout anyway
+                </button>
+                <button
+                  className="btn btn--ghost"
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      setError("");
+                      setLoading(true);
+                      await seedStarterCatalog();
+                      const items = await fetchPublicWorkouts();
+                      setWorkouts(items);
+                    } catch {
+                      setError("Couldn’t create the starter catalog. Please try again.");
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                >
+                  Create starter catalog
                 </button>
               </div>
             ) : null}
@@ -443,12 +713,39 @@ function WorkoutDetailPage({ workoutId }) {
     </button>
   );
 
+  const musclesText = workout.muscles?.length ? workout.muscles.join(", ") : "Full body / unspecified";
+  const tracking =
+    workout.trackingType === "reps"
+      ? `Reps-based${workout.suggestedSets ? ` · ${workout.suggestedSets} sets` : ""}${
+          workout.suggestedReps ? ` · ${workout.suggestedReps} reps` : ""
+        }`
+      : `Time-based${workout.suggestedDurationMinutes ? ` · ${workout.suggestedDurationMinutes} min` : ""}`;
+
   return (
     <PageShell
       title={workout.title}
       subtitle={workout.description || "A public template anyone can view."}
       right={<div className="ctaRow">{action}</div>}
     >
+      <div className="panel">
+        <div className="panel__header">
+          <div className="dot dot--green" />
+          <div className="panel__title">At a glance</div>
+        </div>
+        <div className="panel__body">
+          <div className="facts">
+            <div className="fact">
+              <div className="fact__label">Targets</div>
+              <div className="fact__value">{musclesText}</div>
+            </div>
+            <div className="fact">
+              <div className="fact__label">Tracking</div>
+              <div className="fact__value">{tracking}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="twoCol">
         <div className="panel">
           <div className="panel__header">
@@ -497,7 +794,10 @@ function LogPage({ initialTitle, initialTemplateId }) {
   const [error, setError] = useState("");
   const [title, setTitle] = useState(initialTitle || "");
   const [performedAtISO, setPerformedAtISO] = useState(() => new Date().toISOString().slice(0, 10));
+  const [trackingType, setTrackingType] = useState("duration"); // "duration" | "reps"
   const [durationMinutes, setDurationMinutes] = useState("");
+  const [sets, setSets] = useState("");
+  const [reps, setReps] = useState("");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -513,7 +813,7 @@ function LogPage({ initialTitle, initialTemplateId }) {
         setLogs(items);
       } catch (e) {
         if (!alive) return;
-        setError("Couldn’t load your workout log. Check Firestore rules.");
+        setError("Couldn’t load your workout log. Please try again.");
       } finally {
         if (alive) setLoading(false);
       }
@@ -561,17 +861,22 @@ function LogPage({ initialTitle, initialTemplateId }) {
                   uid: user.uid,
                   title,
                   performedAtISO,
+                  trackingType,
                   durationMinutes,
+                  sets,
+                  reps,
                   notes,
                   templateId: initialTemplateId || null,
                 });
                 setTitle("");
                 setDurationMinutes("");
+                setSets("");
+                setReps("");
                 setNotes("");
                 const items = await fetchWorkoutLogs(user.uid);
                 setLogs(items);
               } catch {
-                setError("Couldn’t save your workout log entry. Check Firestore rules.");
+                setError("Couldn’t save your workout. Please try again.");
               } finally {
                 setSubmitting(false);
               }
@@ -599,6 +904,16 @@ function LogPage({ initialTitle, initialTemplateId }) {
                 />
               </label>
               <label className="field">
+                <span className="field__label">Tracking</span>
+                <select className="input" value={trackingType} onChange={(e) => setTrackingType(e.target.value)}>
+                  <option value="duration">Time-based</option>
+                  <option value="reps">Reps/Sets-based</option>
+                </select>
+              </label>
+            </div>
+
+            {trackingType === "duration" ? (
+              <label className="field">
                 <span className="field__label">Duration (minutes)</span>
                 <input
                   className="input"
@@ -609,7 +924,26 @@ function LogPage({ initialTitle, initialTemplateId }) {
                   placeholder="45"
                 />
               </label>
-            </div>
+            ) : (
+              <div className="twoCol">
+                <label className="field">
+                  <span className="field__label">Sets</span>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    value={sets}
+                    onChange={(e) => setSets(e.target.value)}
+                    placeholder="4"
+                  />
+                </label>
+                <label className="field">
+                  <span className="field__label">Reps (or range)</span>
+                  <input className="input" value={reps} onChange={(e) => setReps(e.target.value)} placeholder="8-12" />
+                </label>
+              </div>
+            )}
+
             <label className="field">
               <span className="field__label">Notes (optional)</span>
               <input
@@ -639,7 +973,12 @@ function LogPage({ initialTitle, initialTemplateId }) {
                 <div className="panel__spacer" />
                 <span className="subtle">
                   {l.performedAt?.toDate ? l.performedAt.toDate().toLocaleDateString() : "—"}
-                  {l.durationMinutes ? ` · ${l.durationMinutes} min` : ""}
+                  {" · "}
+                  {l.trackingType === "reps"
+                    ? `${l.sets || "—"} sets · ${l.reps || "—"} reps`
+                    : l.durationMinutes
+                      ? `${l.durationMinutes} min`
+                      : "—"}
                 </span>
               </div>
               <div className="panel__body">{l.notes ? <span>{l.notes}</span> : <span className="subtle">No notes.</span>}</div>
@@ -794,7 +1133,7 @@ function SignupPage() {
               await updateProfile(cred.user, { displayName: name });
             }
 
-            // Optional: store profile document (handy later; also shows Firestore usage)
+            // Optional: store a profile document (helpful later)
             await setDoc(
               doc(db, "users", cred.user.uid),
               {
@@ -857,54 +1196,6 @@ function SignupPage() {
   );
 }
 
-function SeedHelper() {
-  const [open, setOpen] = useState(false);
-  const sample = useMemo(
-    () => [
-      {
-        title: "Upper Body Strength",
-        description: "Classic push/pull accessories with simple progression.",
-        tags: ["strength", "upper"],
-        exercises: ["Bench Press", "Lat Pulldown", "Dumbbell Row", "Overhead Press"],
-        steps: ["Warm up 5–10 minutes.", "Work sets: 3–4 sets per exercise.", "Finish with light stretching."],
-      },
-      {
-        title: "Lower Body + Core",
-        description: "Squat-focused session with a short core finisher.",
-        tags: ["strength", "lower"],
-        exercises: ["Back Squat", "Romanian Deadlift", "Walking Lunges", "Plank"],
-        steps: ["Warm up hips/ankles.", "Main lift first, then accessories.", "Core finisher: 3 rounds."],
-      },
-    ],
-    [],
-  );
-
-  return (
-    <div className="panel">
-      <div className="panel__header">
-        <div className="dot dot--amber" />
-        <div className="panel__title">Need sample data?</div>
-        <div className="panel__spacer" />
-        <button className="btn btn--ghost btn--small" type="button" onClick={() => setOpen((v) => !v)}>
-          {open ? "Hide" : "Show"}
-        </button>
-      </div>
-      {open ? (
-        <div className="panel__body">
-          <p className="subtle">
-            Create Firestore collection <code>publicWorkouts</code> and add documents with these fields:
-            <code>title</code>, <code>description</code>, <code>exercises</code> (array), <code>steps</code> (array),
-            optional <code>tags</code> (array).
-          </p>
-          <div className="codeLike">
-            {JSON.stringify(sample, null, 2)}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 function App() {
   const hash = useHashRoute();
   const { user, loading } = useAuth();
@@ -926,7 +1217,7 @@ function App() {
   }, [path, loading, user]);
 
   let content = null;
-  if (path === "/") content = <><BrowsePage /><SeedHelper /></>;
+  if (path === "/") content = <BrowsePage />;
   else if (path === "/login") content = <LoginPage />;
   else if (path === "/signup") content = <SignupPage />;
   else if (path === "/log") {
@@ -945,7 +1236,7 @@ function App() {
         <div className="container">{content}</div>
         <footer className="footer">
           <span className="subtle">
-            Public templates: <code>publicWorkouts</code> · Private log: <code>users/&lt;uid&gt;/workoutLogs</code>
+            Templates are public · Your workout log is private
           </span>
         </footer>
       </main>

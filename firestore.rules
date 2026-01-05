@@ -2,11 +2,28 @@ rules_version='2'
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function intOrZero(x) {
+      return x is int ? x : 0;
+    }
+
     // Public content (logged out users can read)
     match /publicWorkouts/{workoutId} {
       allow read: if true;
-      // Lock down writes from the client (seed via Firebase Console, or adjust if needed)
-      allow create, update, delete: if false;
+      // Public voting: allow ONLY a +1 increment to likeCount OR dislikeCount.
+      allow update: if
+        // Only one field changes
+        (
+          request.resource.data.diff(resource.data).changedKeys().hasOnly(['likeCount']) &&
+          intOrZero(request.resource.data.likeCount) == intOrZero(resource.data.likeCount) + 1
+        ) ||
+        (
+          request.resource.data.diff(resource.data).changedKeys().hasOnly(['dislikeCount']) &&
+          intOrZero(request.resource.data.dislikeCount) == intOrZero(resource.data.dislikeCount) + 1
+        );
+
+      // Allow logged-in users to create starter catalog items (but not edit them later)
+      allow create: if request.auth != null;
+      allow delete: if false;
     }
 
     // Private per-user content (logged-in only)
